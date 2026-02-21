@@ -19,8 +19,6 @@ model TrackedItem {
   canonicalUrl     String         @map("canonical_url")
   siteHost         String         @map("site_host")
   active           Boolean        @default(true)
-  targetPriceCents Int?           @map("target_price_cents")
-  currency         String?
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
   snapshots        PriceSnapshot[]

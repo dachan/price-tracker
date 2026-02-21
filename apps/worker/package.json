@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
-    "run-once": "tsx src/run-once.ts"
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
     "@price-tracker/db": "0.1.0",

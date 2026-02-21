@@ -12,7 +12,6 @@ const DEFAULT_CURRENCY = process.env.DEFAULT_CURRENCY ?? "CAD";
 
 type CreateItemInput = {
   url: string;
-  currency?: string;
 };
 
 type ServiceDependencies = {
@@ -55,7 +54,6 @@ export class PriceTrackerService {
         url: input.url,
         canonicalUrl: normalizedUrl,
         siteHost: host,
-        currency: input.currency,
       },
       select: {
         id: true,
@@ -167,7 +165,7 @@ export class PriceTrackerService {
       const remainingAiBudget = await this.getRemainingAiBudgetUsd();
       const allowPlaywright = process.env.ENABLE_PLAYWRIGHT !== "false";
       const extraction = await this.extractor(item.url, {
-        defaultCurrency: item.currency ?? DEFAULT_CURRENCY,
+        defaultCurrency: DEFAULT_CURRENCY,
         allowAi: remainingAiBudget > 0,
         allowPlaywright,
       });

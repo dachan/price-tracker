@@ -5,7 +5,6 @@ import { service } from "@/lib/service";
 
 const createItemSchema = z.object({
   url: z.string().url(),
-  currency: z.string().length(3).optional(),
 });
 
 export async function POST(request: Request) {
