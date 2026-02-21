@@ -1,0 +1,23 @@
+{
+  "name": "@price-tracker/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "run-once": "tsx src/run-once.ts"
+  },
+  "dependencies": {
+    "@price-tracker/db": "0.1.0",
+    "@price-tracker/extraction": "0.1.0",
+    "dotenv": "^16.4.7",
+    "node-cron": "^4.2.0",
+    "playwright": "^1.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

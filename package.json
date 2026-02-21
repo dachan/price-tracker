@@ -1,0 +1,24 @@
+{
+  "name": "price-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "dotenv -e .env -- npm run dev -w @price-tracker/web",
+    "dev:worker": "dotenv -e .env -- npm run dev -w @price-tracker/worker",
+    "start:web": "npm run start -w @price-tracker/web",
+    "start:worker": "npm run start -w @price-tracker/worker",
+    "build": "npm run db:generate && npm run build -w @price-tracker/web",
+    "test": "npm run db:generate && npm run test -ws --if-present",
+    "lint": "npm run lint -ws --if-present",
+    "db:generate": "npm run db:generate -w @price-tracker/db",
+    "db:migrate": "npm run db:migrate -w @price-tracker/db",
+    "db:push": "npm run db:push -w @price-tracker/db"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^8.0.0"
+  }
+}

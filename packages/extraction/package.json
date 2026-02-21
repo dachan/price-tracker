@@ -1,0 +1,24 @@
+{
+  "name": "@price-tracker/extraction",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@price-tracker/db": "0.1.0",
+    "cheerio": "^1.0.0",
+    "openai": "^4.86.2",
+    "p-limit": "^6.2.0",
+    "undici": "^7.15.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "typescript": "^5.8.2",
+    "vitest": "^3.2.4"
+  }
+}

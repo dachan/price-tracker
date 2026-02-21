@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CheckStatus {
+  SUCCESS
+  FAILED
+  NEEDS_REVIEW
+}
+
+model TrackedItem {
+  id               String         @id @default(cuid())
+  url              String
+  canonicalUrl     String         @map("canonical_url")
+  siteHost         String         @map("site_host")
+  active           Boolean        @default(true)
+  targetPriceCents Int?           @map("target_price_cents")
+  currency         String?
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  snapshots        PriceSnapshot[]
+  checkRuns        CheckRun[]
+  notifications    Notification[]
+
+  @@index([canonicalUrl])
+  @@map("tracked_items")
+}
+
+model PriceSnapshot {
+  id               String         @id @default(cuid())
+  itemId           String         @map("item_id")
+  item             TrackedItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  productName      String         @map("product_name")
+  priceCents       Int            @map("price_cents")
+  currency         String
+  checkedAt        DateTime       @default(now()) @map("checked_at")
+  extractionMethod String         @map("extraction_method")
+  confidence       Float
+  evidenceJson     Json           @map("evidence_json")
+  contentHash      String         @map("content_hash")
+  notifications    Notification[]
+
+  @@index([itemId, checkedAt(sort: Desc)])
+  @@map("price_snapshots")
+}
+
+model CheckRun {
+  id               String      @id @default(cuid())
+  itemId           String      @map("item_id")
+  item             TrackedItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  status           CheckStatus
+  errorCode        String?     @map("error_code")
+  errorMessage     String?     @map("error_message")
+  startedAt        DateTime    @default(now()) @map("started_at")
+  finishedAt       DateTime?   @map("finished_at")
+  usedPlaywright   Boolean     @default(false) @map("used_playwright")
+  usedAi           Boolean     @default(false) @map("used_ai")
+  tokenInput       Int?        @map("token_input")
+  tokenOutput      Int?        @map("token_output")
+  estimatedCostUsd Decimal?    @db.Decimal(10, 6) @map("estimated_cost_usd")
+
+  @@index([itemId, startedAt(sort: Desc)])
+  @@map("check_runs")
+}
+
+model Notification {
+  id              String       @id @default(cuid())
+  itemId          String       @map("item_id")
+  item            TrackedItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  snapshotId      String       @map("snapshot_id")
+  snapshot        PriceSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  eventType       String       @map("event_type")
+  webhookStatus   Int?         @map("webhook_status")
+  webhookResponse String?      @map("webhook_response")
+  sentAt          DateTime     @default(now()) @map("sent_at")
+
+  @@unique([itemId, snapshotId, eventType], map: "notifications_dedupe_key")
+  @@index([itemId, sentAt(sort: Desc)])
+  @@map("notifications")
+}
