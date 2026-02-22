@@ -1,0 +1,48 @@
+name: Deploy Price Tracker to Hetzner
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install dependencies and build
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
+
+      - name: Copy files to Hetzner
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.HETZNER_SSH_HOST }}
+          username: ${{ secrets.HETZNER_SSH_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: ${{ secrets.HETZNER_SSH_PORT }}
+          source: "apps,packages,package.json,package-lock.json,ecosystem.config.js"
+          target: "/home/${{ secrets.HETZNER_SSH_USER }}/price-tracker"
+          debug: true
+
+      - name: Restart application via SSH
+        uses: appleboy/ssh-action@v1.2.4
+        with:
+          host: ${{ secrets.HETZNER_SSH_HOST }}
+          username: ${{ secrets.HETZNER_SSH_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          port: ${{ secrets.HETZNER_SSH_PORT }}
+          script: |
+            set -e
+            cd /home/${{ secrets.HETZNER_SSH_USER }}/price-tracker
+            npm ci --omit=dev --legacy-peer-deps
+            pm2 startOrRestart ecosystem.config.js

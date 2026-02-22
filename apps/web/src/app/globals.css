@@ -342,6 +342,12 @@ button.danger {
   color: #66748f;
 }
 
+.metric-tertiary {
+  font-size: 0.67rem;
+  color: #6a7894;
+  font-family: var(--font-mono);
+}
+
 .metric-cell.subtle {
   color: #2f4163;
   font-size: 0.77rem;

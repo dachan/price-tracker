@@ -221,7 +221,7 @@ export default function Home() {
 
   function formatChange(change: TrackedItem["lastPriceChange"]) {
     if (!change) {
-      return { primary: "No change", secondary: "-", tone: "flat" as const };
+      return { primary: "No change", secondary: "-", detail: "-", tone: "flat" as const };
     }
 
     const deltaCents = change.toPriceCents - change.fromPriceCents;
@@ -235,6 +235,7 @@ export default function Home() {
     return {
       primary: `${formatPrice(change.fromPriceCents)} -> ${formatPrice(change.toPriceCents)}`,
       secondary: `${sign}${formatPrice(absDelta)}${percentText}`,
+      detail: formatDate(change.changedAt),
       tone: direction as "up" | "down" | "flat",
     };
   }
@@ -384,6 +385,7 @@ export default function Home() {
                 <div className="metric-cell change-cell" data-label="Last Change">
                   <span className="metric-primary">{change.primary}</span>
                   <span className={`metric-secondary ${change.tone}`}>{change.secondary}</span>
+                  <span className="metric-tertiary">{change.detail}</span>
                 </div>
 
                 <div className="metric-cell" data-label="Stock">
