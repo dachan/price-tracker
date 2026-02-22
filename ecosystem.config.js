@@ -4,7 +4,7 @@ module.exports = {
       name: "price-tracker-web",
       cwd: __dirname,
       script: "npm",
-      args: "run start:web",
+      args: "run start -w @price-tracker/web -- -H 0.0.0.0 -p 4004",
       env: {
         NODE_ENV: "production",
       },
