@@ -1,4 +1,4 @@
-import { formatCurrency } from "./price";
+import { formatPrice } from "./price";
 import type { NotificationPayload } from "./types";
 
 export function buildDiscordMessage(payload: NotificationPayload): { content: string } {
@@ -20,15 +20,14 @@ export async function sendDiscordPriceChange(input: {
   productName: string;
   oldPriceCents: number;
   newPriceCents: number;
-  currency: string;
   url: string;
   checkedAt: Date;
 }): Promise<{ status: number; body: string }> {
   const message = buildDiscordMessage({
     itemId: input.itemId,
     productName: input.productName,
-    oldPrice: formatCurrency(input.oldPriceCents, input.currency),
-    newPrice: formatCurrency(input.newPriceCents, input.currency),
+    oldPrice: formatPrice(input.oldPriceCents),
+    newPrice: formatPrice(input.newPriceCents),
     url: input.url,
     checkedAt: input.checkedAt.toISOString(),
   });
@@ -39,6 +38,38 @@ export async function sendDiscordPriceChange(input: {
       "content-type": "application/json",
     },
     body: JSON.stringify(message),
+  });
+
+  const body = await response.text();
+  return {
+    status: response.status,
+    body,
+  };
+}
+
+export async function sendDiscordBackInStock(input: {
+  webhookUrl: string;
+  productName: string;
+  url: string;
+  checkedAt: Date;
+  priceCents?: number | null;
+}): Promise<{ status: number; body: string }> {
+  const priceLine = typeof input.priceCents === "number" ? `Current Price: ${formatPrice(input.priceCents)}` : "Current Price: n/a";
+
+  const response = await fetch(input.webhookUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      content: [
+        "**Back In Stock**",
+        `Product: ${input.productName}`,
+        priceLine,
+        `Link: ${input.url}`,
+        `Checked: ${input.checkedAt.toISOString()}`,
+      ].join("\n"),
+    }),
   });
 
   const body = await response.text();

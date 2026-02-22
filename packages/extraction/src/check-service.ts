@@ -3,12 +3,10 @@ import pLimit from "p-limit";
 
 import { prisma } from "@price-tracker/db";
 
-import { sendDiscordPriceChange } from "./discord";
+import { sendDiscordBackInStock, sendDiscordPriceChange } from "./discord";
 import { extractProductFromUrl } from "./extract";
 import { normalizeTrackedUrl } from "./url";
 import type { CheckResult } from "./types";
-
-const DEFAULT_CURRENCY = process.env.DEFAULT_CURRENCY ?? "CAD";
 
 type CreateItemInput = {
   url: string;
@@ -17,18 +15,21 @@ type CreateItemInput = {
 type ServiceDependencies = {
   db?: typeof prisma;
   extractor?: typeof extractProductFromUrl;
-  notifier?: typeof sendDiscordPriceChange;
+  priceChangeNotifier?: typeof sendDiscordPriceChange;
+  backInStockNotifier?: typeof sendDiscordBackInStock;
 };
 
 export class PriceTrackerService {
   private db: typeof prisma;
   private extractor: typeof extractProductFromUrl;
-  private notifier: typeof sendDiscordPriceChange;
+  private priceChangeNotifier: typeof sendDiscordPriceChange;
+  private backInStockNotifier: typeof sendDiscordBackInStock;
 
   constructor(deps: ServiceDependencies = {}) {
     this.db = deps.db ?? prisma;
     this.extractor = deps.extractor ?? extractProductFromUrl;
-    this.notifier = deps.notifier ?? sendDiscordPriceChange;
+    this.priceChangeNotifier = deps.priceChangeNotifier ?? sendDiscordPriceChange;
+    this.backInStockNotifier = deps.backInStockNotifier ?? sendDiscordBackInStock;
   }
 
   async createItem(input: CreateItemInput): Promise<{ itemId: string; created: boolean; initialCheck?: CheckResult }> {
@@ -164,14 +165,19 @@ export class PriceTrackerService {
     try {
       const remainingAiBudget = await this.getRemainingAiBudgetUsd();
       const allowPlaywright = process.env.ENABLE_PLAYWRIGHT !== "false";
+      const aiHints = await this.getAiHintsForHost(item.siteHost, item.id);
       const extraction = await this.extractor(item.url, {
-        defaultCurrency: DEFAULT_CURRENCY,
         allowAi: remainingAiBudget > 0,
         allowPlaywright,
+        aiHints,
       });
 
       if (extraction.status !== "success" || !extraction.result) {
-        const needsReview = extraction.reason?.includes("AI_BUDGET") || extraction.reason?.includes("LOW_CONFIDENCE");
+        const needsReview =
+          extraction.reason?.includes("AI_BUDGET") ||
+          extraction.reason?.includes("LOW_CONFIDENCE") ||
+          extraction.reason?.includes("REGIONAL_REDIRECT") ||
+          extraction.reason?.includes("REDIRECT_BLOCKED");
 
         await this.db.checkRun.update({
           where: {
@@ -212,7 +218,8 @@ export class PriceTrackerService {
           itemId: item.id,
           productName: extraction.result.productName,
           priceCents: extraction.result.priceCents,
-          currency: extraction.result.currency,
+          inStock: extraction.result.inStock,
+          stockState: extraction.result.stockState,
           extractionMethod: extraction.result.method,
           confidence: extraction.result.confidence,
           evidenceJson: extraction.result.evidence,
@@ -222,7 +229,7 @@ export class PriceTrackerService {
 
       const changed = didPriceChange(latestSnapshot?.priceCents, snapshot.priceCents);
 
-      if (changed && latestSnapshot) {
+      if (changed && latestSnapshot && typeof latestSnapshot.priceCents === "number" && typeof snapshot.priceCents === "number") {
         await this.sendPriceChangeNotification({
           itemId: item.id,
           snapshotId: snapshot.id,
@@ -230,7 +237,17 @@ export class PriceTrackerService {
           productName: snapshot.productName,
           oldPriceCents: latestSnapshot.priceCents,
           newPriceCents: snapshot.priceCents,
-          currency: snapshot.currency,
+          checkedAt: snapshot.checkedAt,
+        });
+      }
+
+      if (latestSnapshot?.inStock === false && snapshot.inStock === true) {
+        await this.sendBackInStockNotification({
+          itemId: item.id,
+          snapshotId: snapshot.id,
+          url: item.url,
+          productName: snapshot.productName,
+          priceCents: snapshot.priceCents,
           checkedAt: snapshot.checkedAt,
         });
       }
@@ -256,6 +273,8 @@ export class PriceTrackerService {
         changed,
         oldPriceCents: latestSnapshot?.priceCents,
         newPriceCents: snapshot.priceCents,
+        inStock: snapshot.inStock,
+        stockState: extraction.result.stockState,
         status: "SUCCESS",
       };
     } catch (error) {
@@ -307,13 +326,12 @@ export class PriceTrackerService {
       throw new Error("DISCORD_WEBHOOK_URL is not configured");
     }
 
-    return this.notifier({
+    return this.priceChangeNotifier({
       webhookUrl,
       itemId: "test-item",
       productName: "Price Tracker test notification",
       oldPriceCents: 10000,
       newPriceCents: 9500,
-      currency: DEFAULT_CURRENCY,
       url: "https://example.com/product",
       checkedAt: new Date(),
     });
@@ -326,7 +344,6 @@ export class PriceTrackerService {
     productName: string;
     oldPriceCents: number;
     newPriceCents: number;
-    currency: string;
     checkedAt: Date;
   }) {
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
@@ -362,13 +379,12 @@ export class PriceTrackerService {
       return;
     }
 
-    const response = await this.notifier({
+    const response = await this.priceChangeNotifier({
       webhookUrl,
       itemId: input.itemId,
       productName: input.productName,
       oldPriceCents: input.oldPriceCents,
       newPriceCents: input.newPriceCents,
-      currency: input.currency,
       url: input.url,
       checkedAt: input.checkedAt,
     });
@@ -378,6 +394,69 @@ export class PriceTrackerService {
         itemId: input.itemId,
         snapshotId: input.snapshotId,
         eventType: "PRICE_CHANGED",
+      },
+      data: {
+        webhookStatus: response.status,
+        webhookResponse: response.body.slice(0, 1000),
+        sentAt: new Date(),
+      },
+    });
+  }
+
+  private async sendBackInStockNotification(input: {
+    itemId: string;
+    snapshotId: string;
+    url: string;
+    productName: string;
+    priceCents: number | null;
+    checkedAt: Date;
+  }) {
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+
+    try {
+      await this.db.notification.create({
+        data: {
+          itemId: input.itemId,
+          snapshotId: input.snapshotId,
+          eventType: "BACK_IN_STOCK",
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return;
+      }
+      throw error;
+    }
+
+    if (!webhookUrl) {
+      await this.db.notification.updateMany({
+        where: {
+          itemId: input.itemId,
+          snapshotId: input.snapshotId,
+          eventType: "BACK_IN_STOCK",
+        },
+        data: {
+          webhookStatus: 0,
+          webhookResponse: "DISCORD_WEBHOOK_URL not configured",
+          sentAt: new Date(),
+        },
+      });
+      return;
+    }
+
+    const response = await this.backInStockNotifier({
+      webhookUrl,
+      productName: input.productName,
+      url: input.url,
+      checkedAt: input.checkedAt,
+      priceCents: input.priceCents,
+    });
+
+    await this.db.notification.updateMany({
+      where: {
+        itemId: input.itemId,
+        snapshotId: input.snapshotId,
+        eventType: "BACK_IN_STOCK",
       },
       data: {
         webhookStatus: response.status,
@@ -407,6 +486,40 @@ export class PriceTrackerService {
     const spent = Number(aggregate._sum.estimatedCostUsd ?? 0);
     return Math.max(0, dailyBudgetUsd - spent);
   }
+
+  private async getAiHintsForHost(siteHost: string, currentItemId: string): Promise<string[]> {
+    if (!siteHost || typeof this.db.priceSnapshot?.findMany !== "function") {
+      return [];
+    }
+
+    const priorSnapshots = await this.db.priceSnapshot.findMany({
+      where: {
+        item: {
+          siteHost,
+          active: true,
+          id: {
+            not: currentItemId,
+          },
+        },
+      },
+      orderBy: {
+        checkedAt: "desc",
+      },
+      take: 4,
+      select: {
+        productName: true,
+        priceCents: true,
+        inStock: true,
+        stockState: true,
+      },
+    });
+
+    return priorSnapshots.map((snapshot) => {
+      const price = typeof snapshot.priceCents === "number" ? (snapshot.priceCents / 100).toFixed(2) : "n/a";
+      const stock = snapshot.stockState ?? (snapshot.inStock === true ? "IN_STOCK" : snapshot.inStock === false ? "OUT_OF_STOCK" : "UNKNOWN");
+      return `${snapshot.productName} | price=${price} | stock=${stock}`;
+    });
+  }
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -417,25 +530,28 @@ function chunk<T>(items: T[], size: number): T[][] {
   return output;
 }
 
-export function didPriceChange(previousPriceCents: number | undefined, currentPriceCents: number): boolean {
-  if (typeof previousPriceCents !== "number") {
+export function didPriceChange(previousPriceCents: number | null | undefined, currentPriceCents: number | null | undefined): boolean {
+  if (typeof previousPriceCents !== "number" || typeof currentPriceCents !== "number") {
     return false;
   }
   return previousPriceCents !== currentPriceCents;
 }
 
 function findLastPriceChange(
-  snapshots: Array<{ priceCents: number; currency: string; checkedAt: Date }>,
-): { fromPriceCents: number; toPriceCents: number; currency: string; changedAt: Date } | null {
+  snapshots: Array<{ priceCents: number | null; checkedAt: Date }>,
+): { fromPriceCents: number; toPriceCents: number; changedAt: Date } | null {
   for (let i = 0; i < snapshots.length - 1; i += 1) {
     const current = snapshots[i];
     const previous = snapshots[i + 1];
 
-    if (current.priceCents !== previous.priceCents) {
+    if (
+      typeof current.priceCents === "number" &&
+      typeof previous.priceCents === "number" &&
+      current.priceCents !== previous.priceCents
+    ) {
       return {
         fromPriceCents: previous.priceCents,
         toPriceCents: current.priceCents,
-        currency: current.currency,
         changedAt: current.checkedAt,
       };
     }

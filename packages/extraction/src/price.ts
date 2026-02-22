@@ -1,21 +1,10 @@
-const SYMBOL_TO_CURRENCY: Record<string, string> = {
-  "$": "USD",
-  "€": "EUR",
-  "£": "GBP",
-  "¥": "JPY",
-  "₹": "INR",
-};
-
 export type ParsedPrice = {
   priceCents: number;
-  currency?: string;
   rawNumber: number;
 };
 
 export function parsePriceFromText(input: string): ParsedPrice | null {
   const trimmed = input.replace(/\s+/g, " ").trim();
-  const symbolMatch = trimmed.match(/[\$€£¥₹]/);
-  const currency = symbolMatch ? SYMBOL_TO_CURRENCY[symbolMatch[0]] : undefined;
 
   const numberMatch = trimmed.match(/([0-9]{1,3}(?:[.,\s][0-9]{3})*(?:[.,][0-9]{2})|[0-9]+(?:[.,][0-9]{2})?)/);
   if (!numberMatch) {
@@ -33,7 +22,6 @@ export function parsePriceFromText(input: string): ParsedPrice | null {
 
   return {
     priceCents: Math.round(value * 100),
-    currency,
     rawNumber: value,
   };
 }
@@ -71,10 +59,10 @@ function normalizeNumber(value: string, decimalSeparator: "." | "," | null): str
   return value.replace(/[.,]/g, "");
 }
 
-export function formatCurrency(priceCents: number, currency: string): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
+export function formatPrice(priceCents: number): string {
+  const amount = new Intl.NumberFormat("en-CA", {
     minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(priceCents / 100);
+  return `$${amount}`;
 }

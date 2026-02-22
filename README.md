@@ -20,6 +20,8 @@ npm install
 cp .env.example .env
 ```
 
+Default AI fallback model is `gpt-5-mini` (override with `OPENAI_MODEL_SMALL`).
+
 3. Ensure PostgreSQL is running and `DATABASE_URL` is valid.
 
 4. Sync schema:
@@ -37,12 +39,3 @@ npm run dev:worker
 ```
 
 Web UI: [http://localhost:3000](http://localhost:3000)
-
-## PM2 (optional)
-
-```bash
-pm2 start npm --name price-tracker-web -- run start:web
-pm2 start npm --name price-tracker-worker -- run start:worker
-pm2 save
-pm2 startup
-```

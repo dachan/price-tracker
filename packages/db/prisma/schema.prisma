@@ -34,8 +34,9 @@ model PriceSnapshot {
   itemId           String         @map("item_id")
   item             TrackedItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   productName      String         @map("product_name")
-  priceCents       Int            @map("price_cents")
-  currency         String
+  priceCents       Int?           @map("price_cents")
+  inStock          Boolean?       @map("in_stock")
+  stockState       String?        @map("stock_state")
   checkedAt        DateTime       @default(now()) @map("checked_at")
   extractionMethod String         @map("extraction_method")
   confidence       Float
