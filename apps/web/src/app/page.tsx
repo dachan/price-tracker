@@ -37,6 +37,35 @@ type UiStatus = {
   message: string;
 };
 
+async function parseApiPayload(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { rawText: text };
+  }
+}
+
+function getApiErrorMessage(response: Response, payload: unknown, fallback: string): string {
+  if (payload && typeof payload === "object") {
+    if ("error" in payload && typeof payload.error === "string" && payload.error.trim()) {
+      return payload.error;
+    }
+    if ("message" in payload && typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message;
+    }
+    if ("rawText" in payload && typeof payload.rawText === "string" && payload.rawText.trim()) {
+      const compact = payload.rawText.replace(/\s+/g, " ").slice(0, 180);
+      return `${fallback} (${response.status}): ${compact}`;
+    }
+  }
+  return `${fallback} (${response.status})`;
+}
+
 export default function Home() {
   const [items, setItems] = useState<TrackedItem[]>([]);
   const [url, setUrl] = useState("");
@@ -56,11 +85,15 @@ export default function Home() {
   async function loadItems() {
     try {
       const response = await fetch("/api/items", { cache: "no-store" });
-      const payload = await response.json();
+      const payload = await parseApiPayload(response);
       if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to load items");
+        throw new Error(getApiErrorMessage(response, payload, "Failed to load items"));
       }
-      setItems(payload.items ?? []);
+      if (payload && typeof payload === "object" && "items" in payload && Array.isArray(payload.items)) {
+        setItems(payload.items as TrackedItem[]);
+        return;
+      }
+      setItems([]);
     } catch (error) {
       setStatus({
         tone: "error",
@@ -87,27 +120,40 @@ export default function Home() {
         body: JSON.stringify({ url }),
       });
 
-      const payload = await response.json();
+      const payload = await parseApiPayload(response);
       if (!response.ok) {
-        throw new Error(payload.error ?? "Failed to add item");
+        throw new Error(getApiErrorMessage(response, payload, "Failed to add item"));
       }
 
+      if (!payload || typeof payload !== "object") {
+        throw new Error("Failed to add item (invalid API response)");
+      }
+      const createPayload = payload as {
+        itemId?: string;
+        created?: boolean;
+        initialCheck?: {
+          status?: "SUCCESS" | "FAILED" | "NEEDS_REVIEW";
+          stockState?: "IN_STOCK" | "OUT_OF_STOCK" | "PARTIAL" | "UNKNOWN" | null;
+          inStock?: boolean | null;
+        };
+      };
+
       setUrl("");
-      if (payload.created && payload.initialCheck) {
+      if (createPayload.created && createPayload.initialCheck) {
         const stockSuffix =
-          payload.initialCheck.stockState === "PARTIAL"
+          createPayload.initialCheck.stockState === "PARTIAL"
             ? " Marked as partial stock."
-            : payload.initialCheck.inStock === false
+            : createPayload.initialCheck.inStock === false
             ? " Marked as out of stock."
-            : payload.initialCheck.inStock === true
+            : createPayload.initialCheck.inStock === true
               ? " Marked as in stock."
               : "";
         setStatus({
-          tone: payload.initialCheck.status === "SUCCESS" ? "success" : "info",
-          message: `Added item ${payload.itemId}. Initial check: ${payload.initialCheck.status}.${stockSuffix}`,
+          tone: createPayload.initialCheck.status === "SUCCESS" ? "success" : "info",
+          message: `Added item ${createPayload.itemId ?? ""}. Initial check: ${createPayload.initialCheck.status}.${stockSuffix}`,
         });
       } else {
-        setStatus({ tone: "info", message: `Item already tracked: ${payload.itemId}` });
+        setStatus({ tone: "info", message: `Item already tracked: ${createPayload.itemId ?? ""}` });
       }
 
       await loadItems();
@@ -127,19 +173,28 @@ export default function Home() {
 
     try {
       const response = await fetch(`/api/items/${id}/check`, { method: "POST" });
-      const payload = await response.json();
+      const payload = await parseApiPayload(response);
       if (!response.ok) {
-        throw new Error(payload.error ?? "Check failed");
+        throw new Error(getApiErrorMessage(response, payload, "Check failed"));
       }
+      if (!payload || typeof payload !== "object") {
+        throw new Error("Check failed (invalid API response)");
+      }
+      const checkPayload = payload as {
+        status?: "SUCCESS" | "FAILED" | "NEEDS_REVIEW";
+        changed?: boolean;
+        stockState?: "IN_STOCK" | "OUT_OF_STOCK" | "PARTIAL" | "UNKNOWN" | null;
+        inStock?: boolean | null;
+      };
 
       setStatus({
-        tone: payload.status === "SUCCESS" ? "success" : "info",
-        message: `Check status: ${payload.status}${payload.changed ? " (price changed)" : ""}${
-          payload.stockState === "PARTIAL"
+        tone: checkPayload.status === "SUCCESS" ? "success" : "info",
+        message: `Check status: ${checkPayload.status}${checkPayload.changed ? " (price changed)" : ""}${
+          checkPayload.stockState === "PARTIAL"
             ? " (partial stock)"
-            : payload.inStock === false
+            : checkPayload.inStock === false
               ? " (out of stock)"
-              : payload.inStock === true
+              : checkPayload.inStock === true
                 ? " (in stock)"
                 : ""
         }`,
@@ -160,9 +215,9 @@ export default function Home() {
 
     try {
       const response = await fetch(`/api/items/${id}`, { method: "DELETE" });
-      const payload = await response.json();
+      const payload = await parseApiPayload(response);
       if (!response.ok) {
-        throw new Error(payload.error ?? "Delete failed");
+        throw new Error(getApiErrorMessage(response, payload, "Delete failed"));
       }
 
       setStatus({ tone: "success", message: "Item deleted" });
@@ -182,12 +237,16 @@ export default function Home() {
 
     try {
       const response = await fetch("/api/discord/test", { method: "POST" });
-      const payload = await response.json();
+      const payload = await parseApiPayload(response);
       if (!response.ok) {
-        throw new Error(payload.error ?? "Discord test failed");
+        throw new Error(getApiErrorMessage(response, payload, "Discord test failed"));
       }
+      if (!payload || typeof payload !== "object") {
+        throw new Error("Discord test failed (invalid API response)");
+      }
+      const discordPayload = payload as { status?: number };
 
-      setStatus({ tone: "success", message: `Discord test sent (status ${payload.status})` });
+      setStatus({ tone: "success", message: `Discord test sent (status ${discordPayload.status ?? "unknown"})` });
     } catch (error) {
       setStatus({
         tone: "error",

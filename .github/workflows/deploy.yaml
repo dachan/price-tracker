@@ -45,4 +45,5 @@ jobs:
             set -e
             cd /home/${{ secrets.HETZNER_SSH_USER }}/price-tracker
             npm ci --omit=dev --legacy-peer-deps
+            npm run db:generate
             pm2 startOrRestart ecosystem.config.js
